@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory vs Orders</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 p-4">
+    <div class="max-w-lg mx-auto bg-white rounded-xl shadow-lg p-6">
+        <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Inventory Check</h1>
+        
+        <!-- File Upload Section -->
+        <div class="space-y-4 mb-6">
+            <div class="border-2 border-dashed border-blue-200 rounded-lg p-4 hover:border-blue-400 transition-colors">
+                <input type="file" id="inventoryFile" accept=".csv" class="w-full cursor-pointer"/>
+                <p class="text-sm text-gray-500 mt-2">Upload Inventory CSV</p>
+            </div>
+            
+            <div class="border-2 border-dashed border-blue-200 rounded-lg p-4 hover:border-blue-400 transition-colors">
+                <input type="file" id="ordersFile" accept=".csv" class="w-full cursor-pointer"/>
+                <p class="text-sm text-gray-500 mt-2">Upload Orders CSV</p>
+            </div>
+        </div>
+        
+        <button id="compareBtn" class="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors">
+            Compare Files
+        </button>
+        
+        <!-- Results Area -->
+        <div id="results" class="mt-6 p-4 bg-gray-50 rounded-lg text-sm font-mono hidden"></div>
+    </div>
+
+    <script>
+        let inventoryData = null;
+        let ordersData = null;
+
+        function findColumnName(headers, keywords) {
+            const lowerHeaders = headers.map(h => h.toLowerCase());
+            for (const keyword of keywords) {
+                const index = lowerHeaders.findIndex(h => h.includes(keyword));
+                if (index !== -1) return headers[index];
+            }
+            return headers[0];
+        }
+
+        async function handleFileSelect(file) {
+            return new Promise((resolve) => {
+                Papa.parse(file, {
+                    header: true,
+                    complete: (results) => resolve(results.data)
+                });
+            });
+        }
+
+        // File upload handlers
+        document.getElementById('inventoryFile').addEventListener('change', async (e) => {
+            inventoryData = await handleFileSelect(e.target.files[0]);
+        });
+
+        document.getElementById('ordersFile').addEventListener('change', async (e) => {
+            ordersData = await handleFileSelect(e.target.files[0]);
+        });
+
+        // Compare button handler
+        document.getElementById('compareBtn').addEventListener('click', () => {
+            if (!inventoryData || !ordersData) {
+                alert('Please upload both files first');
+                return;
+            }
+
+            try {
+                const resultsDiv = document.getElementById('results');
+                resultsDiv.classList.remove('hidden');
+
+                // Find columns
+                const invHeaders = Object.keys(inventoryData[0]);
+                const ordHeaders = Object.keys(ordersData[0]);
+                const partKeywords = ['part', 'number', 'pn', 'sku', 'item', 'code'];
+                const qtyKeywords = ['qty', 'quantity', 'count', 'amount', 'units'];
+
+                const invPartCol = findColumnName(invHeaders, partKeywords);
+                const invQtyCol = findColumnName(invHeaders, qtyKeywords);
+                const ordPartCol = findColumnName(ordHeaders, partKeywords);
+                const ordQtyCol = findColumnName(ordHeaders, qtyKeywords);
+
+                // Process data
+                const inventoryMap = new Map();
+                const ordersMap = new Map();
+
+                inventoryData.forEach(row => {
+                    const qty = parseInt(row[invQtyCol]) || 0;
+                    if (row[invPartCol]) inventoryMap.set(row[invPartCol], qty);
+                });
+
+                ordersData.forEach(row => {
+                    const qty = parseInt(row[ordQtyCol]) || 0;
+                    if (row[ordPartCol]) {
+                        ordersMap.set(row[ordPartCol], (ordersMap.get(row[ordPartCol]) || 0) + qty);
+                    }
+                });
+
+                // Generate results
+                let results = '';
+                let needsProduction = false;
+
+                for (const [part, invQty] of inventoryMap) {
+                    const ordQty = ordersMap.get(part) || 0;
+                    const needed = ordQty - invQty;
+
+                    if (needed > 0) {
+                        needsProduction = true;
+                        results += `🚨 ${part}: Need ${needed} more\n`;
+                    }
+                }
+
+                resultsDiv.innerHTML = needsProduction ? 
+                    `<div class="text-red-600">${results}</div>` : 
+                    '<div class="text-green-600">✅ All inventory levels sufficient</div>';
+
+            } catch (error) {
+                document.getElementById('results').innerHTML = 
+                    `<div class="text-red-600">Error comparing files</div>`;
+            }
+        });
+    </script>
+</body>
+</html>
